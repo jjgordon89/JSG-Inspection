@@ -1,0 +1,1125 @@
+openapi: 3.0.0
+info:
+  title: JSG-Inspections API
+  version: 1.0.0
+  description: Comprehensive inspection management system API with real-time
+    features, AI integration, and offline synchronization support.
+  contact:
+    name: JSG Development Team
+    email: support@jsg-inspections.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+servers:
+  - url: http://localhost:3000
+    description: Development server
+  - url: https://api.jsg-inspections.com
+    description: Production server
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token for authentication
+    refreshToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT refresh token for token renewal
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              example: VALIDATION_ERROR
+            message:
+              type: string
+              example: Validation failed
+            details:
+              type: string
+              example: Email is required
+    Success:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Operation completed successfully
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          example: user:123
+        firstName:
+          type: string
+          example: John
+        lastName:
+          type: string
+          example: Doe
+        email:
+          type: string
+          format: email
+          example: john.doe@example.com
+        role:
+          type: string
+          enum:
+            - admin
+            - manager
+            - inspector
+            - viewer
+          example: inspector
+        isActive:
+          type: boolean
+          example: true
+        isEmailVerified:
+          type: boolean
+          example: true
+        createdAt:
+          type: string
+          format: date-time
+          example: 2023-01-01T00:00:00.000Z
+        updatedAt:
+          type: string
+          format: date-time
+          example: 2023-01-01T00:00:00.000Z
+    Asset:
+      type: object
+      properties:
+        id:
+          type: string
+          example: asset:123
+        name:
+          type: string
+          example: "Water Pump #1"
+        type:
+          type: string
+          enum:
+            - equipment
+            - building
+            - tool
+            - person
+          example: equipment
+        qrCode:
+          type: string
+          example: QR123456
+        location:
+          type: object
+          properties:
+            latitude:
+              type: number
+              example: 40.7128
+            longitude:
+              type: number
+              example: -74.006
+            address:
+              type: string
+              example: 123 Main St, New York, NY
+        status:
+          type: string
+          enum:
+            - active
+            - inactive
+            - maintenance
+            - retired
+          example: active
+        createdAt:
+          type: string
+          format: date-time
+          example: 2023-01-01T00:00:00.000Z
+    Inspection:
+      type: object
+      properties:
+        id:
+          type: string
+          example: inspection:123
+        title:
+          type: string
+          example: Monthly Safety Inspection
+        status:
+          type: string
+          enum:
+            - draft
+            - in_progress
+            - completed
+            - cancelled
+          example: in_progress
+        priority:
+          type: string
+          enum:
+            - low
+            - medium
+            - high
+            - critical
+          example: medium
+        assetId:
+          type: string
+          example: asset:123
+        formId:
+          type: string
+          example: form:123
+        inspectorId:
+          type: string
+          example: user:123
+        scheduledDate:
+          type: string
+          format: date-time
+          example: 2023-01-01T00:00:00.000Z
+        completedDate:
+          type: string
+          format: date-time
+          example: 2023-01-01T00:00:00.000Z
+        score:
+          type: object
+          properties:
+            percentage:
+              type: number
+              example: 85.5
+            grade:
+              type: string
+              example: B
+        createdAt:
+          type: string
+          format: date-time
+          example: 2023-01-01T00:00:00.000Z
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+          example: 1
+        limit:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 100
+        pages:
+          type: integer
+          example: 5
+        hasNext:
+          type: boolean
+          example: true
+        hasPrev:
+          type: boolean
+          example: false
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      description: Page number for pagination
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    LimitParam:
+      name: limit
+      in: query
+      description: Number of items per page
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    SearchParam:
+      name: search
+      in: query
+      description: Search query string
+      required: false
+      schema:
+        type: string
+    SortByParam:
+      name: sortBy
+      in: query
+      description: Field to sort by
+      required: false
+      schema:
+        type: string
+    SortOrderParam:
+      name: sortOrder
+      in: query
+      description: Sort order
+      required: false
+      schema:
+        type: string
+        enum:
+          - asc
+          - desc
+        default: asc
+security:
+  - bearerAuth: []
+apis:
+  - ./src/routes/*.ts
+  - ./src/controllers/*.ts
+paths:
+  /api/v1/assets:
+    get:
+      summary: Get all assets
+      description: Retrieve all assets with filtering, searching, and pagination
+      tags:
+        - Assets
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/SearchParam"
+        - name: category
+          in: query
+          description: Filter by asset category
+          schema:
+            type: string
+            enum:
+              - equipment
+              - building
+              - vehicle
+              - tool
+              - other
+          example: equipment
+        - name: location
+          in: query
+          description: Filter by asset location
+          schema:
+            type: string
+          example: Building A - Floor 2
+        - name: status
+          in: query
+          description: Filter by asset status
+          schema:
+            type: string
+            enum:
+              - active
+              - inactive
+              - maintenance
+              - retired
+          example: active
+        - name: sortBy
+          in: query
+          description: Field to sort by
+          schema:
+            type: string
+            enum:
+              - name
+              - category
+              - location
+              - createdAt
+              - updatedAt
+            default: createdAt
+        - name: sortOrder
+          in: query
+          description: Sort order
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
+            default: desc
+      responses:
+        "200":
+          description: Assets retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Asset"
+                  pagination:
+                    $ref: "#/components/schemas/PaginationInfo"
+              example:
+                success: true
+                data:
+                  - id: asset:12345
+                    name: Industrial Pump A1
+                    category: equipment
+                    location: Building A - Floor 2
+                    status: active
+                    qrCode: AST001
+                    createdAt: 2024-01-15T10:30:00Z
+                pagination:
+                  page: 1
+                  limit: 20
+                  total: 150
+                  pages: 8
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  "/api/v1/assets/{id}":
+    get:
+      summary: Get asset by ID
+      description: Retrieve a specific asset by its ID with optional related data
+      tags:
+        - Assets
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Asset ID
+          schema:
+            type: string
+          example: asset:12345
+        - name: includeHistory
+          in: query
+          description: Include asset history in response
+          schema:
+            type: boolean
+            default: false
+        - name: includeInspections
+          in: query
+          description: Include related inspections in response
+          schema:
+            type: boolean
+            default: false
+        - name: includeMaintenanceRecords
+          in: query
+          description: Include maintenance records in response
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Asset retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: "#/components/schemas/Asset"
+              example:
+                success: true
+                data:
+                  id: asset:12345
+                  name: Industrial Pump A1
+                  description: High-pressure industrial pump for water circulation
+                  category: equipment
+                  location: Building A - Floor 2
+                  status: active
+                  qrCode: AST001
+                  customFields:
+                    manufacturer: PumpCorp
+                    model: PC-2000
+                    serialNumber: SN123456
+                  createdAt: 2024-01-15T10:30:00Z
+                  updatedAt: 2024-01-20T14:45:00Z
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          description: Asset not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                success: false
+                error:
+                  code: ASSET_NOT_FOUND
+                  message: Asset not found
+        "500":
+          $ref: "#/components/responses/ServerError"
+  "/api/v1/assets/qr/{qrCode}":
+    get:
+      summary: Get asset by QR code
+      description: Retrieve an asset using its QR code identifier
+      tags:
+        - Assets
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: qrCode
+          in: path
+          required: true
+          description: Asset QR code
+          schema:
+            type: string
+          example: AST001
+      responses:
+        "200":
+          description: Asset retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: "#/components/schemas/Asset"
+              example:
+                success: true
+                data:
+                  id: asset:12345
+                  name: Industrial Pump A1
+                  category: equipment
+                  location: Building A - Floor 2
+                  status: active
+                  qrCode: AST001
+                  createdAt: 2024-01-15T10:30:00Z
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          description: Asset not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                success: false
+                error:
+                  code: ASSET_NOT_FOUND
+                  message: Asset with QR code 'AST001' not found
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /api/v1/auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: User login
+      description: Authenticate user with email/username and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+            examples:
+              email_login:
+                summary: Login with email
+                value:
+                  email: inspector@example.com
+                  password: securePassword123
+                  rememberMe: true
+              username_login:
+                summary: Login with username
+                value:
+                  username: inspector_user
+                  password: securePassword123
+                  rememberMe: false
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too many login attempts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /api/v1/auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: User registration
+      description: Register a new user account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+                - firstName
+                - lastName
+                - acceptTerms
+              properties:
+                email:
+                  type: string
+                  format: email
+                  description: User email address
+                password:
+                  type: string
+                  minLength: 8
+                  description: User password (minimum 8 characters)
+                firstName:
+                  type: string
+                  description: User first name
+                lastName:
+                  type: string
+                  description: User last name
+                username:
+                  type: string
+                  description: Optional username
+                phone:
+                  type: string
+                  description: Optional phone number
+                company:
+                  type: string
+                  description: Optional company name
+                acceptTerms:
+                  type: boolean
+                  description: Must accept terms and conditions
+            example:
+              email: newuser@example.com
+              password: securePassword123
+              firstName: John
+              lastName: Doe
+              username: johndoe
+              phone: "+1234567890"
+              company: Example Corp
+              acceptTerms: true
+      responses:
+        "201":
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          description: User already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too many registration attempts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /api/v1/auth/refresh:
+    post:
+      tags:
+        - Authentication
+      summary: Refresh access token
+      description: Generate new access token using refresh token
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken:
+                  type: string
+                  description: Refresh token (can also be provided via cookie)
+            example:
+              refreshToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+      responses:
+        "200":
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          description: Invalid or expired refresh token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too many refresh attempts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /api/v1/auth/forgot-password:
+    post:
+      tags:
+        - Authentication
+      summary: Request password reset
+      description: Send password reset email to user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  format: email
+                  description: User email address
+            example:
+              email: user@example.com
+      responses:
+        "200":
+          description: Password reset email sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too many password reset attempts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /api/v1/auth/logout:
+    post:
+      tags:
+        - Authentication
+      summary: User logout (current session)
+      description: Logout user from current session
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken:
+                  type: string
+                  description: Refresh token (can also be provided via cookie)
+      responses:
+        "200":
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /api/v1/inspections:
+    get:
+      tags:
+        - Inspections
+      summary: Get all inspections
+      description: Retrieve inspections with filtering, pagination, and sorting
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Search"
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum:
+              - draft
+              - scheduled
+              - in_progress
+              - completed
+              - cancelled
+          description: Filter by inspection status
+        - in: query
+          name: priority
+          schema:
+            type: string
+            enum:
+              - low
+              - medium
+              - high
+              - critical
+          description: Filter by priority level
+        - in: query
+          name: folderId
+          schema:
+            type: string
+          description: Filter by folder ID
+        - in: query
+          name: assetId
+          schema:
+            type: string
+          description: Filter by asset ID
+        - in: query
+          name: assignedTo
+          schema:
+            type: string
+          description: Filter by assigned user ID
+        - in: query
+          name: startDate
+          schema:
+            type: string
+            format: date
+          description: Filter by start date (YYYY-MM-DD)
+        - in: query
+          name: endDate
+          schema:
+            type: string
+            format: date
+          description: Filter by end date (YYYY-MM-DD)
+        - $ref: "#/components/parameters/SortBy"
+        - $ref: "#/components/parameters/SortOrder"
+      responses:
+        "200":
+          description: Inspections retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Inspection"
+                  pagination:
+                    $ref: "#/components/schemas/PaginationInfo"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    post:
+      tags:
+        - Inspections
+      summary: Create new inspection
+      description: Create a new inspection with form template and assignment
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - folderId
+              properties:
+                title:
+                  type: string
+                  description: Inspection title
+                description:
+                  type: string
+                  description: Optional inspection description
+                folderId:
+                  type: string
+                  description: Folder ID where inspection belongs
+                assetId:
+                  type: string
+                  description: Optional asset ID being inspected
+                formTemplateId:
+                  type: string
+                  description: Form template ID to use
+                assignedTo:
+                  type: string
+                  description: User ID to assign inspection to
+                priority:
+                  type: string
+                  enum:
+                    - low
+                    - medium
+                    - high
+                    - critical
+                  description: Inspection priority level
+                scheduledDate:
+                  type: string
+                  format: date-time
+                  description: Scheduled date for inspection
+            example:
+              title: Monthly Safety Inspection
+              description: Routine safety check for equipment
+              folderId: folder_123
+              assetId: asset_456
+              formTemplateId: template_789
+              assignedTo: user_101
+              priority: high
+              scheduledDate: 2024-02-15T10:00:00Z
+      responses:
+        "201":
+          description: Inspection created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: "#/components/schemas/Inspection"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  "/api/v1/inspections/{id}":
+    get:
+      tags:
+        - Inspections
+      summary: Get inspection by ID
+      description: Retrieve a specific inspection with optional history and photos
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: Inspection ID
+        - in: query
+          name: includeHistory
+          schema:
+            type: boolean
+            default: false
+          description: Include inspection history
+        - in: query
+          name: includePhotos
+          schema:
+            type: boolean
+            default: false
+          description: Include inspection photos
+      responses:
+        "200":
+          description: Inspection retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: "#/components/schemas/InspectionDetailed"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Inspection not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /api/v1/users/me:
+    get:
+      summary: Get current user profile
+      description: Retrieve the authenticated user's profile information
+      tags:
+        - Users
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: User profile retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: "#/components/schemas/User"
+              example:
+                success: true
+                data:
+                  id: user:12345
+                  firstName: John
+                  lastName: Doe
+                  email: john.doe@example.com
+                  role: inspector
+                  isActive: true
+                  createdAt: 2024-01-15T10:30:00Z
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    put:
+      summary: Update current user profile
+      description: Update the authenticated user's profile information
+      tags:
+        - Users
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                firstName:
+                  type: string
+                  minLength: 2
+                  maxLength: 50
+                  example: John
+                lastName:
+                  type: string
+                  minLength: 2
+                  maxLength: 50
+                  example: Doe
+                email:
+                  type: string
+                  format: email
+                  example: john.doe@example.com
+                phone:
+                  type: string
+                  pattern: ^[+]?[1-9]\d{1,14}$
+                  example: "+1234567890"
+                company:
+                  type: string
+                  maxLength: 100
+                  example: JSG Inspections Inc.
+            example:
+              firstName: John
+              lastName: Doe
+              email: john.doe@example.com
+              phone: "+1234567890"
+              company: JSG Inspections Inc.
+      responses:
+        "200":
+          description: Profile updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: "#/components/schemas/User"
+                  message:
+                    type: string
+                    example: Profile updated successfully
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "429":
+          $ref: "#/components/responses/RateLimitError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /api/v1/users/me/change-password:
+    post:
+      summary: Change current user password
+      description: Change the authenticated user's password
+      tags:
+        - Users
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - currentPassword
+                - newPassword
+              properties:
+                currentPassword:
+                  type: string
+                  description: Current password for verification
+                  example: currentPassword123
+                newPassword:
+                  type: string
+                  minLength: 8
+                  pattern: ^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]
+                  description: New password (min 8 chars, must contain uppercase, lowercase,
+                    number, and special character)
+                  example: NewPassword123!
+            example:
+              currentPassword: currentPassword123
+              newPassword: NewPassword123!
+      responses:
+        "200":
+          description: Password changed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Password changed successfully
+        "400":
+          description: Invalid current password or validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                success: false
+                error:
+                  code: INVALID_PASSWORD
+                  message: Current password is incorrect
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "429":
+          $ref: "#/components/responses/RateLimitError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+tags: []

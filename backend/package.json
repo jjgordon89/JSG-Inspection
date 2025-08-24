@@ -13,7 +13,9 @@
     "test:coverage": "jest --coverage",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
-    "docs": "swagger-jsdoc -d swaggerDef.js src/routes/*.ts -o docs/swagger.json",
+    "docs": "npx swagger-jsdoc -d swaggerDef.js src/routes/*.ts -o docs/swagger.json",
+    "docs:yaml": "npx swagger-jsdoc -d swaggerDef.js src/routes/*.ts -o docs/swagger.yaml",
+    "docs:all": "npm run docs && npm run docs:yaml",
     "migrate": "ts-node src/database/migrations/migrate.ts",
     "seed": "ts-node src/database/seeds/seed.ts"
   },
