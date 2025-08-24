@@ -30,6 +30,26 @@ import mime from 'mime-types';
 import archiver from 'archiver';
 import { createReadStream, createWriteStream } from 'fs';
 import { pipeline } from 'stream/promises';
+import {
+  validateFile as validateFileUtil,
+  getMimeTypeFromPath,
+  detectMimeTypeFromBuffer,
+  calculateChecksum as calculateChecksumUtil,
+  processImage as processImageUtil,
+  createThumbnail,
+  getImageMetadata,
+  optimizeForWeb,
+  validatePath,
+  createSafePath,
+  ensureDirectoryExists,
+  generateUniqueFilename,
+  formatFileSize,
+  getFileInfo as getPathInfo,
+  pathExists,
+  compressFile as compressFileUtil,
+  encryptFile,
+  generateRandomString
+} from '../utils';
 
 export interface FileProcessingResult {
   originalFile: FileMetadata;
@@ -448,10 +468,9 @@ export class FileService {
         }
       }
 
-      // Check if file exists on disk
-      try {
-        await fs.access(filePath);
-      } catch {
+      // Check if file exists on disk using utility
+      const fileExists = await pathExists(filePath);
+      if (!fileExists) {
         throw new AppError(
           'File not found on disk',
           404,
@@ -462,8 +481,9 @@ export class FileService {
       // Create read stream
       const stream = createReadStream(filePath, options.range);
       
-      // Get file stats
-      const stats = await fs.stat(filePath);
+      // Get file info using utility
+      const fileInfo = await getPathInfo(filePath);
+      const contentLength = fileInfo.size || 0;
       
       // Log file access
       await this.logFileAccess(id, userId, 'download');
@@ -471,7 +491,7 @@ export class FileService {
       return {
         stream,
         metadata: file,
-        contentLength: stats.size,
+        contentLength,
         contentType: file.mimeType
       };
     } catch (error) {
@@ -728,21 +748,80 @@ export class FileService {
   }
 
   /**
+   * Get file information
+   */
+  async getFileInfo(fileId: string): Promise<FileInfo | null> {
+    try {
+      const fileRecord = await this.fileRepository.findById(fileId);
+      if (!fileRecord) {
+        return null;
+      }
+
+      const filePath = fileRecord.filePath;
+      
+      // Use utility to get comprehensive path info
+      const pathInfo = await getPathInfo(filePath);
+      if (!pathInfo.exists) {
+        logger.warn('File record exists but file not found on disk', { fileId, filePath });
+        return null;
+      }
+
+      return {
+        id: fileRecord.id,
+        originalName: fileRecord.originalName,
+        fileName: fileRecord.fileName,
+        mimeType: fileRecord.mimeType,
+        size: pathInfo.size || 0,
+        path: fileRecord.filePath,
+        uploadedAt: fileRecord.uploadedAt,
+        uploadedBy: fileRecord.uploadedBy,
+        checksum: fileRecord.checksum,
+        metadata: fileRecord.metadata,
+        formattedSize: formatFileSize(pathInfo.size || 0),
+        isReadable: pathInfo.permissions?.readable || false,
+        isWritable: pathInfo.permissions?.writable || false
+      };
+    } catch (error) {
+      logger.error('Get file info failed', { fileId, error });
+      throw new AppError(
+        'Failed to get file information',
+        500,
+        ErrorCodes.FILE_INFO_ERROR,
+        { originalError: error }
+      );
+    }
+  }
+
+  /**
    * Save file to disk
    */
   async saveFile(
     content: string | Buffer,
-    filePath: string
+    filePath: string,
+    options: { encrypt?: boolean; encryptionKey?: string } = {}
   ): Promise<void> {
     try {
+      // Validate and create safe path
+      const safePath = createSafePath(filePath);
+      
       // Ensure directory exists
-      const dir = path.dirname(filePath);
-      await fs.mkdir(dir, { recursive: true });
+      await ensureDirectoryExists(path.dirname(safePath));
+      
+      let finalContent = content;
+      
+      // Encrypt file if requested
+      if (options.encrypt && options.encryptionKey) {
+        const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content);
+        finalContent = await encryptFile(buffer, options.encryptionKey);
+      }
       
       // Write file
-      await fs.writeFile(filePath, content);
+      await fs.writeFile(safePath, finalContent);
       
-      logger.debug('File saved to disk', { filePath });
+      logger.debug('File saved to disk', { 
+        filePath: safePath,
+        encrypted: options.encrypt || false
+      });
     } catch (error) {
       logger.error('Save file failed', { filePath, error });
       throw new AppError(
@@ -775,32 +854,27 @@ export class FileService {
   private async validateFile(file: FileUpload, userId: string): Promise<FileValidationResult> {
     const errors: string[] = [];
 
-    // Check file size
-    if (file.size > this.maxFileSize) {
-      errors.push(`File size exceeds maximum allowed size of ${this.maxFileSize / 1024 / 1024}MB`);
-    }
-
-    // Check MIME type
-    if (!this.allowedMimeTypes.has(file.mimetype)) {
-      errors.push(`File type ${file.mimetype} is not allowed`);
-    }
-
-    // Check file extension
-    const extension = path.extname(file.originalname).toLowerCase();
-    const expectedMimeType = mime.lookup(extension);
-    if (expectedMimeType && expectedMimeType !== file.mimetype) {
-      errors.push('File extension does not match MIME type');
+    try {
+      // Use the comprehensive validation utility
+      await validateFileUtil(file.buffer, {
+        maxSize: this.maxFileSize,
+        allowedMimeTypes: Array.from(this.allowedMimeTypes),
+        checkMagicBytes: true,
+        scanForMalware: true,
+        originalName: file.originalname
+      });
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : 'File validation failed');
     }
 
     // Check user quota
-    const userQuota = await this.getUserQuota(userId);
-    if (userQuota.used + file.size > userQuota.limit) {
-      errors.push('File would exceed user storage quota');
-    }
-
-    // Scan for malicious content (basic check)
-    if (await this.containsSuspiciousContent(file.buffer)) {
-      errors.push('File contains suspicious content');
+    try {
+      const userQuota = await this.getUserQuota(userId);
+      if (userQuota.used + file.size > userQuota.limit) {
+        errors.push('File would exceed user storage quota');
+      }
+    } catch (error) {
+      errors.push('Failed to check user quota');
     }
 
     return {
@@ -823,21 +897,20 @@ export class FileService {
     const thumbnails: FileMetadata[] = [];
     
     try {
-      // Get image metadata
+      // Get image metadata using utility
+      const metadata = await getImageMetadata(buffer);
       const image = sharp(buffer);
-      const metadata = await image.metadata();
       
       // Generate thumbnails
       const thumbnailSizes = options.thumbnailSizes || [150, 300, 600];
       
       for (const size of thumbnailSizes) {
-        const thumbnailBuffer = await image
-          .resize(size, size, {
-            fit: 'inside',
-            withoutEnlargement: true
-          })
-          .jpeg({ quality: 80 })
-          .toBuffer();
+        const thumbnailBuffer = await createThumbnail(buffer, {
+          width: size,
+          height: size,
+          quality: 80,
+          format: 'jpeg'
+        });
         
         const thumbnailId = `${fileId}_thumb_${size}`;
         const thumbnailPath = await this.saveFile(
@@ -868,9 +941,10 @@ export class FileService {
       
       // Generate compressed version if requested
       if (options.compress) {
-        const compressedBuffer = await image
-          .jpeg({ quality: options.quality || 85 })
-          .toBuffer();
+        const compressedBuffer = await optimizeForWeb(buffer, {
+          quality: options.quality || 85,
+          format: 'jpeg'
+        });
         
         const compressedId = `${fileId}_compressed`;
         const compressedPath = await this.saveFile(
@@ -980,10 +1054,10 @@ export class FileService {
   ): Promise<string> {
     const fileName = this.generateFileName(fileId, originalName);
     const subDir = directory || this.determineSubDirectory(originalName);
-    const filePath = path.join(this.uploadDir, subDir, fileName);
+    const filePath = createSafePath(path.join(this.uploadDir, subDir, fileName));
     
     // Ensure directory exists
-    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await ensureDirectoryExists(path.dirname(filePath));
     
     // Write file
     await fs.writeFile(filePath, buffer);
@@ -992,12 +1066,11 @@ export class FileService {
   }
 
   private generateFileId(): string {
-    return `file_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
+    return `file_${Date.now()}_${generateRandomString(16)}`;
   }
 
   private generateFileName(fileId: string, originalName: string): string {
-    const extension = path.extname(originalName);
-    return `${fileId}${extension}`;
+    return generateUniqueFilename(fileId, originalName);
   }
 
   private determineFileCategory(mimeType: string): FileCategory {
@@ -1023,23 +1096,10 @@ export class FileService {
   }
 
   private async calculateChecksum(buffer: Buffer): Promise<string> {
-    return crypto.createHash('sha256').update(buffer).digest('hex');
+    return calculateChecksumUtil(buffer);
   }
 
-  private async containsSuspiciousContent(buffer: Buffer): Promise<boolean> {
-    // Basic malware detection - check for suspicious patterns
-    const content = buffer.toString('binary');
-    const suspiciousPatterns = [
-      /eval\s*\(/gi,
-      /<script[^>]*>/gi,
-      /javascript:/gi,
-      /vbscript:/gi,
-      /onload\s*=/gi,
-      /onerror\s*=/gi
-    ];
-    
-    return suspiciousPatterns.some(pattern => pattern.test(content));
-  }
+
 
   private async getUserQuota(userId: string): Promise<FileQuota> {
     const user = await this.userRepository.findById(userId);
@@ -1239,8 +1299,29 @@ export class FileService {
         mimeType: 'image/jpeg',
         updatedAt: new Date()
       });
+    } else {
+      // For other files, use compression utility
+      const compressedPath = file.filePath.replace(/\.[^.]+$/, '_compressed.gz');
+      
+      const result = await compressFileUtil(file.filePath, compressedPath, {
+        algorithm: 'gzip',
+        level: compressionLevel,
+        preserveOriginal: true
+      });
+      
+      // Update file record
+      await this.fileRepository.update(fileId, {
+        filePath: compressedPath,
+        size: result.compressedSize,
+        mimeType: 'application/gzip',
+        updatedAt: new Date(),
+        metadata: {
+          ...file.metadata,
+          compressionRatio: result.compressionRatio,
+          originalSize: file.size
+        }
+      });
     }
-    // For other files, could use zlib or other compression libraries
   }
 
   private async backupFile(

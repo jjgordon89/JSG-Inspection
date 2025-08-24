@@ -553,6 +553,20 @@ export class WebSocketService extends EventEmitter {
   }
 
   /**
+   * Broadcast event to all connected clients (alias for broadcast)
+   */
+  async broadcastToAll(event: string, data: any): Promise<void> {
+    this.broadcast(event, data);
+  }
+
+  /**
+   * Broadcast to specific room
+   */
+  async broadcastToRoom(room: string, event: string, data: any): Promise<void> {
+    this.emitToRoom(room, event, data);
+  }
+
+  /**
    * Emit event to specific socket
    */
   emit(event: string, data: any): void {
@@ -576,6 +590,46 @@ export class WebSocketService extends EventEmitter {
    */
   sendNotification(userId: string, notification: NotificationPayload): void {
     this.emitToUser(userId, 'notification', notification);
+  }
+
+  /**
+   * Send notification to specific user
+   */
+  async sendNotificationToUser(userId: string, notification: any): Promise<void> {
+    this.emitToUser(userId, 'notification', notification);
+  }
+
+  /**
+   * Send notification to team
+   */
+  async sendNotificationToTeam(teamId: string, notification: any): Promise<void> {
+    this.emitToTeam(teamId, 'notification', notification);
+  }
+
+  /**
+   * Send notification to users with specific role
+   */
+  async sendNotificationToRole(role: string, notification: any): Promise<void> {
+    try {
+      // Get all users with the specified role
+      const users = await this.userRepository.findByRole(role);
+      
+      // Send notification to each user
+      for (const user of users) {
+        this.emitToUser(user.id, 'notification', notification);
+      }
+      
+      logger.debug('Notification sent to role', {
+        role,
+        userCount: users.length,
+        notificationType: notification.type
+      });
+    } catch (error) {
+      logger.error('Send notification to role failed', {
+        role,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
   }
 
   /**
@@ -958,6 +1012,27 @@ export class WebSocketService extends EventEmitter {
    */
   getAllRooms(): RoomInfo[] {
     return Array.from(this.rooms.values());
+  }
+
+  /**
+   * Get rooms (alias for getAllRooms)
+   */
+  getRooms(): RoomInfo[] {
+    return this.getAllRooms();
+  }
+
+  /**
+   * Get connected users count
+   */
+  getConnectedUsersCount(): number {
+    return this.userSockets.size;
+  }
+
+  /**
+   * Get online users
+   */
+  getOnlineUsers(): string[] {
+    return Array.from(this.userSockets.keys());
   }
 
   /**
